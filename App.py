@@ -4,13 +4,13 @@ from google.genai import types
 import pandas as pd
 
 # --- APP CONFIG ---
-st.set_page_config(page_title="WTFF AI Judge: Chunk Processor", layout="wide")
-st.title("🏆 WTFF Event Archive: Multi-Heat Processor")
+st.set_page_config(page_title="WTFF AI Judge: Pro Edition", layout="wide")
+st.title("🏆 WTFF Event Archive: Full Video Analysis")
 
 with st.sidebar:
-    st.header("Control Panel")
+    st.header("Billing Status: PAID")
     api_key = st.text_input("Enter Gemini API Key", type="password")
-    st.warning("Free Tier: Processing in 30-min chunks is recommended to avoid Quota Errors.")
+    st.success("Pay-as-you-go enabled: Full video processing active.")
 
 # --- UTILITY: PARSE AI TABLE ---
 def parse_ai_table(text):
@@ -27,30 +27,29 @@ def parse_ai_table(text):
 # --- MAIN LOGIC ---
 if api_key:
     client = genai.Client(api_key=api_key)
-    event_url = st.text_input("Paste YouTube Event URL")
+    event_url = st.text_input("Paste YouTube Event URL (e.g., Grandvillard, Acro Game, etc.)")
 
     if event_url:
         st.video(event_url)
         
-        # --- CHUNK SELECTION ---
-        st.subheader("Select Heat Window")
-        col1, col2 = st.columns(2)
-        start_min = col1.number_input("Start Minute", min_value=0, value=0)
-        end_min = col2.number_input("End Minute", min_value=1, value=30)
-
-        if st.button(f"🔍 Analyze Minutes {start_min} to {end_min}"):
-            with st.spinner(f"Analyzing segment..."):
+        if st.button("🚀 Analyze Entire Event (All Pilots)"):
+            with st.spinner("Gemini is watching the full event. This can take 1-2 minutes for long streams..."):
                 try:
-                    # We tell the AI exactly which window to look at to save 'Tokens'
-                    prompt = f"""
-                    Focus ONLY on the video segment from {start_min}:00 to {end_min}:00.
-                    1. Identify every pilot run in this specific window.
-                    2. Provide: Pilot Name, Exact Timestamp, Maneuvers, and WTFF Score (0-100).
+                    # PROMPT: Now we ask for EVERYTHING
+                    prompt = """
+                    Watch this entire paragliding event video. 
+                    1. Create a comprehensive log of every pilot run shown.
+                    2. For each run, identify: 
+                       - Pilot Name (listen to commentator/check graphics)
+                       - Timestamp (Start to End of the run)
+                       - Maneuvers performed
+                       - Technical Score (0-100) based on WTFF 2026 standards
                     
                     RETURN ONLY A MARKDOWN TABLE: 
-                    Pilot | Timestamp | Maneuvers | WTFF_Score
+                    Pilot | Start_Time | End_Time | Maneuvers | WTFF_Score
                     """
 
+                    # Using the direct YouTube URI
                     response = client.models.generate_content(
                         model='gemini-2.0-flash',
                         contents=[
@@ -59,20 +58,19 @@ if api_key:
                         ]
                     )
 
+                    st.subheader("Complete Event Results")
                     st.markdown(response.text)
                     
+                    # Create the Master CSV
                     df = parse_ai_table(response.text)
                     if df is not None:
                         st.download_button(
-                            label="📥 Download This Chunk (CSV)",
+                            label="📥 Download Full Event Results (CSV)",
                             data=df.to_csv(index=False).encode('utf-8'),
-                            file_name=f"WTFF_Minutes_{start_min}_to_{end_min}.csv",
+                            file_name="WTFF_Full_Event_Results.csv",
                             mime="text/csv",
                         )
                 except Exception as e:
-                    if "429" in str(e):
-                        st.error("Quota Exceeded. Please wait 60 seconds before trying the next chunk.")
-                    else:
-                        st.error(f"Error: {e}")
+                    st.error(f"Analysis failed: {e}")
 else:
-    st.warning("Please enter your API Key.")
+    st.warning("Please enter your API Key to unlock pro features.")
