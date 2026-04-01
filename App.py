@@ -4,15 +4,16 @@ from google.genai import types
 import pandas as pd
 
 # --- APP CONFIG ---
-st.set_page_config(page_title="WTFF AI Judge 2026", layout="wide")
-st.title("🏆 WTFF Event Archive: 3.1 Flash Analysis")
+st.set_page_config(page_title="WTFF AI Judge: Stable Pro", layout="wide")
+st.title("🏆 WTFF Event Archive: Pro Analysis")
 
 with st.sidebar:
-    st.header("Billing: ENABLED")
+    st.header("Billing Status: ACTIVE")
     api_key = st.text_input("Enter Gemini API Key", type="password")
-    # Updated to the new 3.1 series
-    st.success("Model: Gemini 3.1 Flash (Latest)")
+    # This model is the 2026 production workhorse
+    st.success("Model: Gemini 2.5 Pro (Stable)")
 
+# --- UTILITY: PARSE AI TABLE ---
 def parse_ai_table(text):
     lines = [line.strip() for line in text.split('\n') if '|' in line and '---' not in line]
     if len(lines) < 2: return None
@@ -24,6 +25,7 @@ def parse_ai_table(text):
             data.append(dict(zip(headers, values)))
     return pd.DataFrame(data)
 
+# --- MAIN LOGIC ---
 if api_key:
     client = genai.Client(api_key=api_key)
     event_url = st.text_input("Paste YouTube Event URL")
@@ -32,27 +34,27 @@ if api_key:
         st.video(event_url)
         
         if st.button("🚀 Run Analysis"):
-            with st.spinner("Gemini 3.1 is processing video frames..."):
+            with st.spinner("Analyzing video... This can take up to 3 minutes for long streams."):
                 try:
-                    # PROMPT: We add a 'Strict Grounding' instruction to stop hallucinations
+                    # PROMPT: Specific instructions to avoid drone-racing hallucinations
                     prompt = """
-                    VIDEO ANALYSIS TASK:
-                    1. Watch this paragliding competition video.
-                    2. IGNORE any pre-existing knowledge of drone racing.
-                    3. Identify the ACTUAL paragliding pilots shown on screen (check jerseys, graphics, or commentator mentions).
-                    4. Create a table: Pilot | Start_Time | End_Time | Maneuvers | WTFF_Score
+                    Watch this paragliding competition archive. 
+                    1. Focus ONLY on the paragliding runs. 
+                    2. Identify the ACTUAL pilot names from the video graphics or commentator.
+                    3. Create a table: Pilot | Start | End | Maneuvers | WTFF_Score.
                     
-                    Return ONLY the markdown table. If you cannot see a pilot name, write 'Unknown'.
+                    Return ONLY the markdown table.
                     """
 
+                    # FIXED: Using the production 2.5 Pro model and correct FileData structure
                     response = client.models.generate_content(
-                        model='gemini-3.1-flash-preview', # THE FIXED MODEL ID
+                        model='gemini-2.5-pro',
                         contents=[
                             types.Part.from_uri(
                                 file_uri=event_url,
                                 mime_type="video/mp4"
                             ),
-                            prompt
+                            types.Part.from_text(text=prompt)
                         ]
                     )
 
@@ -60,8 +62,15 @@ if api_key:
                     
                     df = parse_ai_table(response.text)
                     if df is not None:
-                        st.download_button("📥 Download CSV", df.to_csv(index=False).encode('utf-8'), "WTFF_Results.csv")
+                        st.download_button(
+                            label="📥 Download Results (CSV)",
+                            data=df.to_csv(index=False).encode('utf-8'),
+                            file_name="WTFF_Event_Report.csv",
+                            mime="text/csv",
+                        )
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(f"Analysis failed: {e}")
+                    if "404" in str(e):
+                        st.info("Note: Ensure your API key is from a region where Gemini 2.5 is available (US/EU).")
 else:
     st.warning("Please enter your API Key.")
