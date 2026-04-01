@@ -8,17 +8,14 @@ import io
 # --- APP CONFIG ---
 st.set_page_config(page_title="AWT 2026 Pro Analyzer", layout="wide")
 st.title("🏆 Acro World Tour: Professional AI Judge")
-st.markdown("### Powered by Gemini 2.5 Flash + Official AWT Grounding")
 
 with st.sidebar:
-    st.header("1. API & Quota Settings")
+    st.header("1. API & Settings")
     api_key = st.text_input("Enter Gemini API Key", type="password")
     chunk_size = st.slider("Processing Chunk (Minutes)", 15, 60, 45)
     
     st.header("2. Official AWT Data")
-    st.info("Paste the results table from acroworldtour.com below to prevent hallucinations.")
-    official_data = st.text_area("Paste Official Results Here", height=200, 
-                                placeholder="Rank | Pilot | Score\n1 | Théo de Blic | 94.5\n2 | Luke de Weert | 92.1...")
+    official_data = st.text_area("Paste Official Results Here", height=150)
 
 # --- UTILITY: PARSE AI TABLE ---
 def parse_ai_table(text):
@@ -36,89 +33,53 @@ def parse_ai_table(text):
 if api_key:
     client = genai.Client(api_key=api_key)
     
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        event_url = st.text_input("Paste YouTube Event URL")
-    with col2:
-        vid_hours = st.number_input("Video Length (Hours)", min_value=0.5, value=3.0)
+    event_url = st.text_input("Paste YouTube Event URL")
+    vid_hours = st.number_input("Video Length (Hours)", min_value=0.5, value=3.0)
 
     if event_url:
-        st.video(event_url)
-        
-        if st.button("🚀 Start Full Archive Analysis"):
-            all_rows = []
-            total_mins = int(vid_hours * 60)
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            table_placeholder = st.empty()
-
-            for start_m in range(0, total_mins, chunk_size):
-                end_m = start_m + chunk_size
-                status_text.warning(f"🔍 Analyzing {start_m}m to {end_m}m...")
-
-                # THE MASTER PROMPT
-                prompt = f"""
-                Watch the segment from {start_m}:00 to {end_m}:00.
-                You are an expert AWT Judge. Follow these instructions STICKLY:
-
-                1. PILOT IDENTIFICATION (OCR): 
-                   - Look at the BOTTOM-LEFT corner of the screen for the lower-third name graphic.
-                   - Extract that exact name. 
-                
-                2. DATA GROUNDING:
-                   - Use these official results as your Truth Source: {official_data if official_data else 'No data provided.'}
-                   - Match the pilot on screen to a pilot in the official list.
-
-                3. WTFF 2026 SCORING (100pt Scale):
-                   - Technical (40 pts): Difficulty/execution of acro maneuvers.
-                   - Choreography (40 pts): Flow, placement, and energy.
-                   - Landing (20 pts): Precision on the target.
-                   - CALCULATE: AI_Total = Tech + Choreo + Landing.
-
-                RETURN ONLY A MARKDOWN TABLE:
-                Pilot_Name | Start | End | Maneuvers | AI_Tech | AI_Choreo | AI_Landing | AI_Total | Official_AWT_Score
-                """
-
+        if st.button("🚀 Start Analysis"):
+            # STEP 1: Process the URL (The AI needs the video "attached", not just a link)
+            with st.spinner("Preparing video for analysis (this avoids the 400 error)..."):
                 try:
-                    response = client.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=[
-                            types.Part.from_uri(file_uri=event_url, mime_type="video/mp4"),
-                            prompt
-                        ]
-                    )
-
-                    # Extract and merge
-                    chunk_rows = parse_ai_table(response.text)
-                    all_rows.extend(chunk_rows)
+                    # In 2026, we pass the URL directly as a string part for YouTube 
+                    # This lets the model's 'Video Tool' handle the fetch.
+                    video_part = types.Part.from_text(text=f"VIDEO_SOURCE: {event_url}")
                     
-                    # Update live view
+                    all_rows = []
+                    total_mins = int(vid_hours * 60)
+                    progress_bar = st.progress(0)
+                    table_placeholder = st.empty()
+
+                    for start_m in range(0, total_mins, chunk_size):
+                        end_m = start_m + chunk_size
+                        
+                        prompt = f"""
+                        Watch the video segment from {start_m}:00 to {end_m}:00.
+                        1. IDENTIFY pilot names from the BOTTOM-LEFT screen graphic.
+                        2. COMPARE against these official results: {official_data}
+                        3. SCORE (100pt Scale): Tech (40), Choreo (40), Landing (20).
+                        
+                        Return ONLY a markdown table:
+                        Pilot | Start | End | AI_Total | Official_Score | Maneuvers
+                        """
+
+                        # FIXED: We send the prompt and the URL reference as separate parts
+                        response = client.models.generate_content(
+                            model='gemini-2.5-flash',
+                            contents=[video_part, prompt]
+                        )
+
+                        chunk_rows = parse_ai_table(response.text)
+                        all_rows.extend(chunk_rows)
+                        if all_rows:
+                            table_placeholder.table(pd.DataFrame(all_rows))
+
+                        progress_bar.progress(min(end_m / total_mins, 1.0))
+                        time.sleep(10) # Quota protection
+
                     if all_rows:
-                        table_placeholder.table(pd.DataFrame(all_rows).tail(15))
-
-                    progress_bar.progress(min(end_m / total_mins, 1.0))
-                    
-                    # Tier 1 Quota Protection (10s delay)
-                    time.sleep(10)
+                        st.success("Analysis Complete!")
+                        st.download_button("📥 Download CSV", pd.DataFrame(all_rows).to_csv(index=False).encode('utf-8'), "Report.csv")
 
                 except Exception as e:
-                    if "429" in str(e):
-                        st.error("Quota Exhausted. Waiting 60s to resume...")
-                        time.sleep(60)
-                    else:
-                        st.error(f"Error at {start_m}m: {e}")
-                        break
-
-            # FINAL EXPORT
-            if all_rows:
-                st.success("🎯 Analysis Complete!")
-                df = pd.DataFrame(all_rows)
-                
-                # Cleanup: Ensure scores are numeric for a quick variance check
-                st.subheader("Performance Analytics")
-                st.write("Below is your consolidated event report.")
-                
-                csv = df.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Download Master CSV Report", csv, "AWT_Full_Report.csv", "text/csv")
-else:
-    st.warning("Please enter your Gemini API Key in the sidebar.")
+                    st.error(f"Analysis failed: {e}")
