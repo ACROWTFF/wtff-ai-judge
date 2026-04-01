@@ -1,8 +1,8 @@
 import streamlit as st
 from google import genai
-import yt_dlp
+from google.genai import types
 import pandas as pd
-import io
+import re
 
 # --- APP CONFIG ---
 st.set_page_config(page_title="WTFF AI Judge: Archive Master", layout="wide")
@@ -11,53 +11,72 @@ st.title("🏆 WTFF Event Archive & Batch Scoring")
 with st.sidebar:
     st.header("Control Panel")
     api_key = st.text_input("Enter Gemini API Key", type="password")
-    st.info("System: WTFF 2026 Batch Processor")
+    st.info("System: WTFF 2026 Batch Processor (YouTube Direct)")
 
-# --- CORE LOGIC ---
+# --- UTILITY: PARSE AI TABLE TO DATAFRAME ---
+def parse_ai_table(text):
+    """Simple parser to turn AI markdown tables into a downloadable format"""
+    lines = [line.strip() for line in text.split('\n') if '|' in line and '---' not in line]
+    if len(lines) < 2:
+        return None
+    
+    data = []
+    headers = [h.strip() for h in lines[0].split('|') if h.strip()]
+    for line in lines[1:]:
+        values = [v.strip() for v in line.split('|') if v.strip()]
+        if len(values) == len(headers):
+            data.append(dict(zip(headers, values)))
+    return pd.DataFrame(data)
+
+# --- MAIN LOGIC ---
 if api_key:
     client = genai.Client(api_key=api_key)
-    event_url = st.text_input("Paste paragliding.live Event URL (Full Day Stream)")
+    event_url = st.text_input("Paste YouTube Event URL (e.g., paragliding.live stream)")
 
     if event_url:
-        if st.button("🔍 Analyze Full Event & Generate CSV"):
-            with st.spinner("AI is scanning the archive for all pilot runs..."):
-                
-                # --- STEP 1: DOWNLOAD & UPLOAD ---
-                # Note: In a real test, we use 'yt-dlp' to grab the stream.
-                # For this code, we simulate the AI's deep-scan of the channel.
-                
-                # --- STEP 2: THE BATCH PROMPT ---
-                # We ask the AI to find EVERY pilot and score them.
-                prompt = """
-                Watch the provided paragliding event archive.
-                1. Identify every individual pilot's competition run.
-                2. For every run, extract: Pilot Name, Start Timestamp, and End Timestamp.
-                3. Calculate the Score based on WTFF 2026 (TC, Execution, Choreography).
-                4. Return the data as a clean list of dictionaries.
-                """
+        st.video(event_url) # Show the video in the app
+        
+        if st.button("🔍 Run Full Event Analysis"):
+            with st.spinner("AI is analyzing the video. This takes ~30-60 seconds..."):
+                try:
+                    # PROMPT: Instructs the AI to be a judge
+                    prompt = """
+                    Watch this paragliding competition video. 
+                    1. Identify every individual pilot run.
+                    2. For each run, provide: Pilot Name, Start/End Timestamps, and Maneuvers.
+                    3. Score each run (0-100) based on WTFF 2026 technical standards.
+                    
+                    RETURN ONLY A MARKDOWN TABLE with these columns: 
+                    Pilot | Start | End | Maneuvers | WTFF_Score
+                    """
 
-                # Simulation of the AI's multi-run detection
-                # In production, 'response' will contain this structured data
-                data = [
-                    {"Pilot": "Théo de Blic", "Start": "01:12:05", "End": "01:15:10", "Score": 94.85, "Maneuvers": "Twisted Infinite, Esfera"},
-                    {"Pilot": "Bicho Carrera", "Start": "01:25:30", "End": "01:28:45", "Score": 92.10, "Maneuvers": "Heli to SAT, Misty"},
-                    {"Pilot": "Luke de Weert", "Start": "01:40:15", "End": "01:43:20", "Score": 89.50, "Maneuvers": "Infinity, MacTwist"}
-                ]
-                
-                # --- STEP 3: DATA HANDLING & DOWNLOAD ---
-                df = pd.DataFrame(data)
-                st.subheader("Event Leaderboard (AI Detected)")
-                st.dataframe(df, use_container_width=True)
+                    # Calling the model with the YouTube URL directly
+                    response = client.models.generate_content(
+                        model='gemini-2.0-flash',
+                        contents=[
+                            types.Part.from_uri(
+                                file_uri=event_url,
+                                mime_type="video/webm" # Standard for YT processing
+                            ),
+                            prompt
+                        ]
+                    )
 
-                # Convert to CSV for download
-                csv = df.to_csv(index=False).encode('utf-8')
-                
-                st.download_button(
-                    label="📥 Download Full Results (CSV)",
-                    data=csv,
-                    file_name="WTFF_Event_Results.csv",
-                    mime="text/csv",
-                )
-                st.success("Archive processed. All runs indexed.")
+                    # Display Analysis
+                    st.subheader("Final AI Judgment")
+                    st.markdown(response.text)
+
+                    # Create CSV Download
+                    df = parse_ai_table(response.text)
+                    if df is not None:
+                        csv = df.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            label="📥 Download Results as CSV",
+                            data=csv,
+                            file_name="WTFF_Event_Results.csv",
+                            mime="text/csv",
+                        )
+                except Exception as e:
+                    st.error(f"Analysis failed: {e}")
 else:
-    st.warning("Please enter your API Key to access the archive processor.")
+    st.warning("Please enter your API Key to start judging.")
