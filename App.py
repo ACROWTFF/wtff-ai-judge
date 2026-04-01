@@ -4,13 +4,13 @@ from google.genai import types
 import pandas as pd
 
 # --- APP CONFIG ---
-st.set_page_config(page_title="WTFF AI Judge: Pro Edition", layout="wide")
+st.set_page_config(page_title="WTFF AI Judge: Pro v1.5", layout="wide")
 st.title("🏆 WTFF Event Archive: Full Video Analysis")
 
 with st.sidebar:
     st.header("Billing Status: PAID")
     api_key = st.text_input("Enter Gemini API Key", type="password")
-    st.success("Pay-as-you-go enabled: Full video processing active.")
+    st.success("Using Gemini 1.5 Pro - High Capacity Mode")
 
 # --- UTILITY: PARSE AI TABLE ---
 def parse_ai_table(text):
@@ -26,51 +26,53 @@ def parse_ai_table(text):
 
 # --- MAIN LOGIC ---
 if api_key:
+    # Initialize the client
     client = genai.Client(api_key=api_key)
-    event_url = st.text_input("Paste YouTube Event URL (e.g., Grandvillard, Acro Game, etc.)")
+    event_url = st.text_input("Paste YouTube Event URL")
 
     if event_url:
         st.video(event_url)
         
-        if st.button("🚀 Analyze Entire Event (All Pilots)"):
-            with st.spinner("Gemini is watching the full event. This can take 1-2 minutes for long streams..."):
+        if st.button("🚀 Run Full Archive Analysis"):
+            with st.spinner("Gemini 1.5 Pro is analyzing the full stream. This may take 2-3 minutes..."):
                 try:
-                    # PROMPT: Now we ask for EVERYTHING
                     prompt = """
-                    Watch this entire paragliding event video. 
-                    1. Create a comprehensive log of every pilot run shown.
-                    2. For each run, identify: 
-                       - Pilot Name (listen to commentator/check graphics)
-                       - Timestamp (Start to End of the run)
-                       - Maneuvers performed
-                       - Technical Score (0-100) based on WTFF 2026 standards
+                    Watch this entire paragliding competition archive. 
+                    1. Identify every pilot's competition run.
+                    2. For each run, extract: 
+                       - Pilot Name
+                       - Start and End Timestamps
+                       - List of maneuvers performed
+                       - WTFF 2026 Technical Score (0-100)
                     
                     RETURN ONLY A MARKDOWN TABLE: 
                     Pilot | Start_Time | End_Time | Maneuvers | WTFF_Score
                     """
 
-                    # Using the direct YouTube URI
+                    # UPDATED MODEL: gemini-1.5-pro-latest
                     response = client.models.generate_content(
-                        model='gemini-2.0-flash',
+                        model='gemini-1.5-pro-latest',
                         contents=[
                             types.Part.from_uri(file_uri=event_url, mime_type="video/webm"),
                             prompt
                         ]
                     )
 
-                    st.subheader("Complete Event Results")
+                    st.subheader("Event Leaderboard & Log")
                     st.markdown(response.text)
                     
-                    # Create the Master CSV
+                    # CSV Generation
                     df = parse_ai_table(response.text)
                     if df is not None:
+                        csv = df.to_csv(index=False).encode('utf-8')
                         st.download_button(
-                            label="📥 Download Full Event Results (CSV)",
-                            data=df.to_csv(index=False).encode('utf-8'),
-                            file_name="WTFF_Full_Event_Results.csv",
+                            label="📥 Download Results (CSV)",
+                            data=csv,
+                            file_name="WTFF_Event_Results.csv",
                             mime="text/csv",
                         )
                 except Exception as e:
                     st.error(f"Analysis failed: {e}")
+                    st.info("Tip: If the video is over 4 hours, try analyzing in 2-hour segments.")
 else:
-    st.warning("Please enter your API Key to unlock pro features.")
+    st.warning("Please enter your API Key.")
