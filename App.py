@@ -1,20 +1,19 @@
 import streamlit as st
 from google import genai
-from google.genai import types
 import pandas as pd
 import time
 import io
 
 # --- APP CONFIG ---
 st.set_page_config(page_title="WTFF Batch Judge 2026", layout="wide")
-st.title("🏆 WTFF Event Archive: 2.5 Flash Batch Processor")
+st.title("🏆 WTFF Event Archive: Direct-Link Batch Processor")
 
 with st.sidebar:
     st.header("Settings")
     api_key = st.text_input("Enter Gemini API Key", type="password")
-    # 45 mins is the 'sweet spot' for Tier 1 Paid accounts
-    chunk_size = st.slider("Chunk Size (Minutes)", 15, 60, 45)
-    st.success("Model: Gemini 2.5 Flash (Stable)")
+    chunk_size = st.slider("Chunk Size (Minutes)", 15, 60, 30)
+    st.success("Model: Gemini 2.5 Flash")
+    st.info("Using Direct-Link Protocol to avoid 400 Errors.")
 
 # --- UTILITY: PARSE AI TABLE ---
 def parse_ai_table(text):
@@ -50,20 +49,19 @@ if api_key:
                 status_area.warning(f"Processing segment: {start_m} to {end_m} minutes...")
                 
                 try:
+                    # WE PASS THE URL DIRECTLY IN THE TEXT TO AVOID SDK WRAPPING ERRORS
                     prompt = f"""
-                    Watch the segment from {start_m}:00 to {end_m}:00.
-                    1. Identify every paragliding run. 
-                    2. Return a table: Pilot | Start | End | Maneuvers | WTFF_Score.
-                    Respond ONLY with the markdown table.
+                    Watch this video: {event_url}
+                    Focus ONLY on the segment from {start_m}:00 to {end_m}:00.
+                    1. Identify every individual paragliding run. 
+                    2. Provide: Pilot | Start | End | Maneuvers | WTFF_Score.
+                    Return ONLY a markdown table.
                     """
 
-                    # UPDATED MODEL ID: gemini-2.5-flash
+                    # Simplified content call
                     response = client.models.generate_content(
                         model='gemini-2.5-flash',
-                        contents=[
-                            types.Part.from_uri(file_uri=event_url, mime_type="video/mp4"),
-                            prompt
-                        ]
+                        contents=prompt
                     )
 
                     new_data = parse_ai_table(response.text)
@@ -76,17 +74,15 @@ if api_key:
                     progress_bar.progress(progress_perc)
 
                     # Pause to stay under the 1M tokens-per-minute limit
-                    time.sleep(10)
+                    time.sleep(12)
 
                 except Exception as e:
-                    if "404" in str(e):
-                        st.error("Model Error: Please ensure you are using 'gemini-2.5-flash'.")
-                    elif "429" in str(e):
-                        st.info("Quota limit reached. Auto-waiting 60s...")
+                    st.error(f"Error at {start_m}m: {e}")
+                    if "429" in str(e):
+                        st.info("Quota reached. Waiting 60s...")
                         time.sleep(60)
                     else:
-                        st.error(f"Error at {start_m}m: {e}")
-                    break
+                        break
 
             if all_rows:
                 st.success("✅ Analysis Complete!")
