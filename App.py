@@ -2,87 +2,44 @@ import streamlit as st
 from google import genai
 from google.genai import types
 import pandas as pd
-import re
 
 # --- APP CONFIG ---
-st.set_page_config(page_title="AWT 2026 Pro Validator", layout="wide")
-st.title("🏆 AWT Official Judge & Validator")
-st.markdown("#### Section 7 Foundation: (40% Tech | 40% Exec | 20% Artistic & Landing)")
+st.set_page_config(page_title="WTFF 2026 Official Engine", layout="wide")
+st.title("🛡️ WTFF Sporting Code: Technical & Technicity Engine")
 
 with st.sidebar:
-    st.header("1. Authentication")
-    api_key = st.text_input("Enter Gemini API Key", type="password")
-    
-    st.header("2. Data Source")
-    st.info("The AI will attempt to find the season and year matching the video.")
-    manual_year = st.selectbox("Select Competition Year", [2023, 2024, 2025, 2026], index=0)
+    st.header("Organizer Overrides")
+    st.info("Correct any AI misidentifications here to force a recalculation.")
+    override_pilot = st.text_input("Pilot Name")
+    correct_tricks = st.text_area("Correct Maneuver List (Comma separated)")
+    if st.button("Apply Manual Override"):
+        st.session_state[f"override_{override_pilot}"] = correct_tricks
 
-# --- MATH ENGINE: SHOW YOUR WORK ---
-def format_calculation(pilot, t, e, a, l, bonus):
-    # Standard AWT Section 7: (T*0.4) + (E*0.4) + ((A+L)/2 * 0.2) + B
-    tech_part = float(t) * 0.4
-    exec_part = float(e) * 0.4
-    art_land_part = ((float(a) + float(l)) / 2) * 0.2
-    final = tech_part + exec_part + art_land_part + float(bonus)
+# --- MATH ENGINE: WTFF TOP 3 PROTOCOL ---
+def calculate_wtff(k_factors, technical, choreo, landing, bonus):
+    # Sort and take top 3 for Technicity
+    top_3 = sorted(k_factors, reverse=True)[:3]
+    technicity = sum(top_3) / 3 if top_3 else 0
     
-    work_str = f"({t}x0.4) + ({e}x0.4) + (({a}+{l})/2 x 0.2) + {bonus}"
-    return round(final, 3), work_str
+    # WTFF Math Problem
+    tech_merit = technicity * (technical / 10)
+    final_score = tech_merit + choreo + landing + bonus
+    
+    math_work = f"Avg({top_3}) * ({technical}/10) + {choreo} + {landing} + {bonus}"
+    return round(final_score, 3), math_work, round(technicity, 3)
 
 # --- MAIN LOGIC ---
-if api_key:
-    client = genai.Client(api_key=api_key)
-    event_url = st.text_input("YouTube Event URL")
+if st.button("🚀 Analyze Run & Compare with AWT Database"):
+    # PROMPT: Hard-coded to the Top 3 Average logic and Pilot Feedback
+    prompt = """
+    COMPLY WITH WTFF SECTION 7 PROTOCOL:
+    1. EXTRACT: All maneuvers from the video.
+    2. COMPARE: Match list against acroworldtour.com results for this athlete.
+    3. TECHNICITY: Identify the TOP 3 highest K-factors. Calculate their AVERAGE.
+    4. TECHNICAL: Grade execution from 0-10.
+    5. PILOT FEEDBACK: For every maneuver, provide a 1-sentence technical explanation of faults (e.g., 'Asymmetric exit on Helico', 'Insufficient tension in Infinity').
 
-    if event_url and st.button("🚀 Run Official Comparison"):
-        with st.spinner(f"Accessing AWT {manual_year} Archives..."):
-            try:
-                # PROMPT: Explicit instructions to use AWT Website logic
-                prompt = f"""
-                You are a WTFF Judge. Access the AWT digital archives for {manual_year}.
-                
-                1. MATCH: Find the event in the video (Location/Season).
-                2. DATA: For every pilot, pull the Official Maneuver Sequence from the AWT results page.
-                3. EVALUATE: Compare the AI video observation against the official maneuver order.
-                
-                4. CALCULATION (Show Your Work):
-                   Use the 40/40/20 formula from the Sporting Code.
-                   - Technicity (T): 40% weight
-                   - Execution (E): 40% weight
-                   - Artistic/Landing (A/L): 20% weight
-                   - Bonus (B): Additive
-                
-                OUTPUT TABLE COLUMNS:
-                Pilot | Official Maneuvers | T(40%) | E(40%) | A/L(20%) | Bonus | AI_Work | AI_Final | Official_Score
-                """
-
-                response = client.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=[types.Part.from_text(text=f"VIDEO_SOURCE: {event_url}"), prompt]
-                )
-
-                # Robust Parser for the complex table
-                raw_text = response.text
-                lines = [l.strip() for l in raw_text.split('\n') if l.count('|') > 5]
-                
-                if lines:
-                    headers = [h.strip() for h in lines[0].split('|') if h.strip()]
-                    data_rows = [l for l in lines[1:] if not re.match(r'^[|\s\-:]+$', l)]
-                    
-                    rows = []
-                    for row in data_rows:
-                        vals = [v.strip() for v in row.split('|') if v.strip()]
-                        if len(vals) >= len(headers):
-                            rows.append(dict(zip(headers, vals[:len(headers)])))
-                    
-                    df = pd.DataFrame(rows)
-                    st.table(df)
-                    
-                    st.download_button("📥 Download AWT Comparative Report", df.to_csv(index=False).encode('utf-8'), "AWT_Validation.csv")
-                else:
-                    st.warning("AI analyzed the video but could not format the table. Raw output:")
-                    st.write(raw_text)
-
-            except Exception as e:
-                st.error(f"Critical Failure: {e}")
-else:
-    st.warning("Please enter your API Key and ensure requirements.txt is uploaded to GitHub.")
+    OUTPUT COLUMNS:
+    Pilot | Top 3 K-Factors | Technicity (Avg) | Technical (E) | Choreo | Landing | Bonus | AI_Final | Pilot Feedback (Faults)
+    """
+    # Logic to call Gemini and display follows...
