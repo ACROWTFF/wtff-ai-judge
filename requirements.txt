@@ -1,3 +1,5 @@
+google-genai
 streamlit
-google-genai>=1.0.0
 pandas
+beautifulsoup4
+requests
